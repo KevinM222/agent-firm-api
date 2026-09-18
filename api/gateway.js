@@ -1,66 +1,91 @@
 import express from "express";
+import { HTTPFacilitatorClient } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 
+const PAY_TO = process.env.X402_PAY_TO;
+const FACILITATOR = "https://facilitator.payai.network";
 const app = express();
-const PAY_TO = process.env.X402_PAY_TO || "";
-const HAS_ID = Boolean(process.env.CDP_API_KEY_ID);
-const HAS_SECRET = Boolean(process.env.CDP_API_KEY_SECRET);
+let ready;
+let boot = { ok: false, error: "not_started" };
 
-let cdp = { ok: false, error: "not_started" };
-
-async function initCdp() {
+async function start() {
+  if (ready) return app;
   try {
-    const { createX402Server } = await import("@coinbase/cdp-sdk/x402");
-    const { paymentMiddlewareFromHTTPServer } = await import("@x402/express");
-    const server = await createX402Server({
-      environment: "production",
-      payToConfig: { type: "address", evm: PAY_TO },
-      routes: {
-        "GET /api/v1/risk-snapshot": {
-          price: "$0.10",
-          networks: ["eip155:8453"],
-          description: "Red-flag snapshot for a Base address.",
+    const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR });
+    const server = new x402ResourceServer(facilitatorClient);
+    server.register("eip155:8453", new ExactEvmScheme());
+    await server.initialize();
+
+    app.use(
+      paymentMiddleware(
+        {
+          "GET /api/v1/risk-snapshot": {
+            accepts: [
+              {
+                scheme: "exact",
+                price: "$0.10",
+                network: "eip155:8453",
+                payTo: PAY_TO,
+              },
+            ],
+            description: "Red-flag snapshot for a Base address. Not investment advice.",
+            mimeType: "application/json",
+          },
         },
-      },
-    });
-    app.use(paymentMiddlewareFromHTTPServer(server));
-    cdp = { ok: true, error: null };
+        server
+      )
+    );
+
+    boot = { ok: true, error: null };
   } catch (e) {
-    cdp = { ok: false, error: String(e && e.message ? e.message : e) };
+    boot = { ok: false, error: String(e && e.message ? e.message : e) };
   }
-}
 
-const ready = initCdp();
-
-app.get("/api/health", async (_req, res) => {
-  await ready;
-  res.json({
-    ok: true,
-    mode: cdp.ok ? "cdp" : "fallback",
-    cdp: cdp.ok,
-    error: cdp.error,
-    hasPayTo: PAY_TO.startsWith("0x"),
-    hasKeyId: HAS_ID,
-    hasSecret: HAS_SECRET,
+  app.get("/api/health", (_req, res) => {
+    res.json({
+      ok: true,
+      mode: boot.ok ? "payai" : "fallback",
+      facilitator: FACILITATOR,
+      hasPayTo: Boolean(PAY_TO && PAY_TO.startsWith("0x")),
+      error: boot.error,
+    });
   });
-});
 
-app.get("/api/v1/risk-snapshot", async (req, res) => {
-  await ready;
-  if (cdp.ok) {
+  app.get("/api/v1/risk-snapshot", async (req, res) => {
+    if (!boot.ok) {
+      res.status(402).json({ error: "Payment required", cdp_error: boot.error });
+      return;
+    }
+    const subject = String(req.query.subject || req.query.address || "").trim();
+    if (!subject) {
+      res.status(400).json({ error: "Pass ?subject=0x..." });
+      return;
+    }
+    let explorer = null;
+    try {
+      const r = await fetch(`https://base.blockscout.com/api/v2/addresses/${subject}`);
+      if (r.ok) explorer = await r.json();
+    } catch {
+      explorer = { error: "explorer_unavailable" };
+    }
     res.json({
       type: "risk.snapshot",
-      note: "If you see this without paying, middleware did not wrap the route.",
+      skill: "risk.snapshot",
+      network: "eip155:8453",
+      subject,
+      source: `https://base.blockscout.com/address/${subject}`,
+      explorer,
+      signed: false,
+      note: "Automated explorer snapshot. Not investment advice.",
     });
-    return;
-  }
-  res.status(402).json({
-    error: "Payment required",
-    mode: "fallback",
-    cdp_error: cdp.error,
   });
-});
+
+  ready = true;
+  return app;
+}
 
 export default async function handler(req, res) {
-  await ready;
-  return app(req, res);
+  const application = await start();
+  return application(req, res);
 }
