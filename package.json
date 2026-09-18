@@ -1,13 +1,15 @@
 {
   "name": "agent-firm-api",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.38.0",
     "@x402/core": "^2.2.0",
     "@x402/evm": "^2.2.0",
     "@x402/express": "^2.2.0",
+    "@x402/extensions": "^2.2.0",
+    "@x402/svm": "^2.2.0",
     "express": "^5.1.0"
   }
 }
