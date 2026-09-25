@@ -76,6 +76,46 @@ async function start() {
     });
   });
 
+  app.get(["/openapi.json", "/api/openapi.json"], (_req, res) => {
+    res.json({
+      openapi: "3.1.0",
+      info: {
+        title: "Agent Firm",
+        version: "1.0.0",
+        description:
+          "x402-paid Base USDC skills. risk.snapshot returns an explorer snapshot. Not investment advice. No custody.",
+      },
+      servers: [{ url: "https://agent-firm-api.vercel.app" }],
+      paths: {
+        "/api/v1/risk-snapshot": {
+          get: {
+            summary: "Red-flag snapshot for a Base address",
+            parameters: [
+              {
+                name: "subject",
+                in: "query",
+                required: true,
+                schema: { type: "string" },
+                description: "Base address or contract",
+              },
+            ],
+            responses: {
+              "200": { description: "Snapshot JSON after payment" },
+              "402": { description: "Payment required" },
+            },
+            "x-payment-info": {
+              protocols: ["x402"],
+              network: "eip155:8453",
+              asset: "USDC",
+              price: "0.10",
+              payTo: PAY_TO,
+            },
+          },
+        },
+      },
+    });
+  });
+
   app.get("/api/v1/risk-snapshot", async (req, res) => {
     if (!boot.ok) {
       res.status(402).json({ error: "Payment required", error_detail: boot.error });
