@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/openapi.json", "destination": "/api/gateway" },
+    { "source": "/.well-known/ai-plugin.json", "destination": "/api/gateway" },
     { "source": "/api/(.*)", "destination": "/api/gateway" }
   ],
   "headers": [
