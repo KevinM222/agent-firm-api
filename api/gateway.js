@@ -2,6 +2,7 @@ import express from "express";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
+import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 
 const PAY_TO = process.env.X402_PAY_TO;
 const FACILITATOR = "https://facilitator.payai.network";
@@ -29,8 +30,31 @@ async function start() {
                 payTo: PAY_TO,
               },
             ],
-            description: "Red-flag snapshot for a Base address. Not investment advice.",
+            description:
+              "Red-flag snapshot for a Base address. Not investment advice.",
             mimeType: "application/json",
+            extensions: {
+              ...declareDiscoveryExtension({
+                input: { subject: "0x0000000000000000000000000000000000000000" },
+                inputSchema: {
+                  properties: {
+                    subject: {
+                      type: "string",
+                      description: "Base address or contract to snapshot",
+                    },
+                  },
+                  required: ["subject"],
+                },
+                output: {
+                  example: {
+                    type: "risk.snapshot",
+                    skill: "risk.snapshot",
+                    network: "eip155:8453",
+                    subject: "0x0000000000000000000000000000000000000000",
+                  },
+                },
+              }),
+            },
           },
         },
         server
@@ -45,7 +69,7 @@ async function start() {
   app.get("/api/health", (_req, res) => {
     res.json({
       ok: true,
-      mode: boot.ok ? "payai" : "fallback",
+      mode: boot.ok ? "payai-bazaar" : "fallback",
       facilitator: FACILITATOR,
       hasPayTo: Boolean(PAY_TO && PAY_TO.startsWith("0x")),
       error: boot.error,
@@ -54,7 +78,7 @@ async function start() {
 
   app.get("/api/v1/risk-snapshot", async (req, res) => {
     if (!boot.ok) {
-      res.status(402).json({ error: "Payment required", cdp_error: boot.error });
+      res.status(402).json({ error: "Payment required", error_detail: boot.error });
       return;
     }
     const subject = String(req.query.subject || req.query.address || "").trim();
@@ -64,7 +88,9 @@ async function start() {
     }
     let explorer = null;
     try {
-      const r = await fetch(`https://base.blockscout.com/api/v2/addresses/${subject}`);
+      const r = await fetch(
+        `https://base.blockscout.com/api/v2/addresses/${subject}`
+      );
       if (r.ok) explorer = await r.json();
     } catch {
       explorer = { error: "explorer_unavailable" };
