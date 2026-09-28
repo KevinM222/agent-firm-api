@@ -66,7 +66,7 @@ async function start() {
               },
             ],
             description:
-              "Flash sourced memo. Not a buy order. Phase 1 automated flash only.",
+              "Flash memo. Not a buy order. Phase 1 automated flash only.",
             mimeType: "application/json",
             extensions: {
               ...declareDiscoveryExtension({
@@ -75,7 +75,7 @@ async function start() {
                   properties: {
                     topic: {
                       type: "string",
-                      description: "Topic or Base address for a flash memo",
+                      description: "Topic for a flash memo",
                     },
                   },
                   required: ["topic"],
@@ -149,7 +149,7 @@ async function start() {
         },
         "/api/v1/research-memo": {
           get: {
-            summary: "Flash sourced memo",
+            summary: "Flash memo",
             parameters: [
               {
                 name: "topic",
@@ -188,7 +188,7 @@ async function start() {
     let explorer = null;
     try {
       const r = await fetch(
-        `https://base.blockscout.com/api/v2/addresses/${subject}`
+        "https://base.blockscout.com/api/v2/addresses/" + subject
       );
       if (r.ok) explorer = await r.json();
     } catch {
@@ -198,9 +198,9 @@ async function start() {
       type: "risk.snapshot",
       skill: "risk.snapshot",
       network: "eip155:8453",
-      subject,
-      source: `https://base.blockscout.com/address/${subject}`,
-      explorer,
+      subject: subject,
+      source: "https://base.blockscout.com/address/" + subject,
+      explorer: explorer,
       signed: false,
       note: "Automated explorer snapshot. Not investment advice.",
     });
@@ -216,56 +216,40 @@ async function start() {
       res.status(400).json({ error: "Pass ?topic=..." });
       return;
     }
+    res.json({
+      type: "memo",
+      skill: "research.memo.base",
+      depth: "flash",
+      topic: topic,
+      question: "What is this flash memo?",
+      facts: [
+        {
+          claim:
+            "This is an automated flash memo. It is not a buy order and not the human Research desk.",
+          source: "https://agent-firm.grok.me",
+        },
+        {
+          claim:
+            "For a sourced standard memo, use the request page after paying the listed price.",
+          source: "https://agent-firm.grok.me/request",
+        },
+      ],
+      failure_modes: [
+        "Buyer treats flash output as investment advice.",
+        "Buyer treats HTTP 200 as a subscription.",
+      ],
+      kill_criterion: "Use human Research if the buyer needs sourced depth.",
+      sellable: true,
+      suggested_price_usdc: 0.5,
+      signed: false,
+    });
+  });
 
-    const facts = [];
-    const sources = [];
-    const isAddr = /^0x[a-fA-F0-9]{40}$/.test(topic);
+  ready = true;
+  return app;
+}
 
-    try {
-      if (isAddr) {
-        const r = await fetch(
-          `https://base.blockscout.com/api/v2/addresses/${topic}`
-        );
-        sources.push(`https://base.blockscout.com/address/${topic}`);
-        if (r.ok) {
-          const j = await r.json();
-          facts.push({
-            claim: `Base explorer lists this as ${j.implementation_name || j.name || j.is_contract ? "a contract or labeled address" : "an EOA-style address"}.`,
-            source: sources[0],
-          });
-          facts.push({
-            claim: `Coin balance field present: ${String(j.coin_balance || "unknown")}.`,
-            source: sources[0],
-          });
-        } else {
-          facts.push({
-            claim: "Explorer did not return a usable record for this address.",
-            source: sources[0],
-          });
-        }
-      } else {
-        const title = encodeURIComponent(topic.replace(/\s+/g, "_"));
-        const r = await fetch(
-          `https://en.wikipedia.org/api/rest_v1/page/summary/${title}`,
-          { headers: { "User-Agent": "AgentFirmFlashMemo/1.1" } }
-        );
-        sources.push(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
-        if (r.ok) {
-          const j = await r.json();
-          if (j.extract) {
-            facts.push({
-              claim: String(j.extract).slice(0, 600),
-              source: j.content_urls?.desktop?.page || sources[0],
-            });
-          }
-          if (j.description) {
-            facts.push({
-              claim: `Short descriptor: ${j.description}`,
-              source: j.content_urls?.desktop?.page || sources[0],
-            });
-          }
-        } else {
-          facts.push({
-            claim:
-              "No Wikipedia summary for that topic string. Treat as unsourced; use /request for a human Research memo.",
-            source: "https://agent-firm.grok.m
+export default async function handler(req, res) {
+  const application = await start();
+  return application(req, res);
+}
